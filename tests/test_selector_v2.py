@@ -94,6 +94,49 @@ def test_softmax_empty():
     assert sv2.softmax({}, temperature=1.0) == {}
 
 
+# --------------------------------------- posterior closed-form helpers tests
+
+
+def test_posterior_mean_matches_empirical_with_lots_of_data():
+    # 10_000 credit over 100 hours = 100 c/hr; with a weak prior, posterior
+    # mean should be very close to 100.
+    m = sv2.posterior_mean(10_000.0, 100.0, prior_mean=50.0, prior_strength_hours=0.5)
+    assert abs(m - 100.0) < 0.5
+
+
+def test_posterior_mean_falls_back_to_prior_with_no_data():
+    m = sv2.posterior_mean(0.0, 0.0, prior_mean=42.0, prior_strength_hours=0.5)
+    assert m == 42.0
+
+
+def test_posterior_std_shrinks_with_more_data():
+    s_thin = sv2.posterior_std(50.0, 0.5, prior_mean=50.0, prior_strength_hours=0.5)
+    s_thick = sv2.posterior_std(50_000.0, 500.0, prior_mean=50.0, prior_strength_hours=0.5)
+    assert s_thick < s_thin / 10
+
+
+def test_v2_annotates_combined_stats():
+    cs = {"http://a/": _stats(1000.0, 10.0, 50)}  # 100 c/hr
+    sv2.select_and_weight(
+        combined_stats=cs,
+        mag_ratios={"http://a/": 0.005},
+        approved_project_urls=["http://a/"],
+        preferred_projects={},
+        ignored_projects=[],
+        config=sv2.V2Config(rng_seed=1, n_samples=8),
+    )
+    stats = cs["http://a/"]["COMPILED_STATS"]
+    assert "V2_POSTERIOR_MEAN_CR" in stats
+    assert "V2_POSTERIOR_STD_CR" in stats
+    assert "V2_EXP_MAG" in stats
+    # Posterior mean should land near 100 c/hr (50 tasks of solid data)
+    assert abs(stats["V2_POSTERIOR_MEAN_CR"] - 100.0) < 5.0
+    # V2_EXP_MAG = mean * smoothed_ratio
+    assert abs(stats["V2_EXP_MAG"] - stats["V2_POSTERIOR_MEAN_CR"] * 0.005) < 1e-9
+    # AVGMAGPERHOUR should now match V2_EXP_MAG (v2 overwrites the legacy value)
+    assert stats["AVGMAGPERHOUR"] == stats["V2_EXP_MAG"]
+
+
 # -------------------------------------------------- select_and_weight integration
 
 

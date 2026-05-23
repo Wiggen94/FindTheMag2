@@ -2585,6 +2585,21 @@ def generate_stats(
             preferred_pct=PREFERRED_PROJECTS_PERCENT,
             config=v2_cfg,
         )
+        # Summary of where v2 ended up, since the legacy "Highest mag/hr
+        # project ..." announcement isn't produced when v2 short-circuits.
+        ranked = sorted(
+            ((u, w) for u, w in final_project_weights.items() if w > 0),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        top3 = ", ".join(
+            "{} -> {:.0f}".format(u.rstrip("/").split("/")[-1] or u, w)
+            for u, w in ranked[:3]
+        ) or "(none)"
+        summary = "v2 selector top-3 weights: " + top3
+        if not quiet:
+            print(summary)
+        log.info(summary)
         # dev weights: under v2 we don't allocate to a separate dev account
         # (assumes user has sidestaking enabled; see README v2 section).
         dev_project_weights = {u: 0.0 for u in final_project_weights}
@@ -3782,6 +3797,9 @@ def update_table(
         "TOTALCPUTIME(HRS)": "CPUTIME",
         "AVGCREDITPERHOUR": "CREDIT/HR",
         "AVGMAGPERHOUR": "MAG/HR",
+        "V2_POSTERIOR_MEAN_CR": "V2_µCR",
+        "V2_POSTERIOR_STD_CR": "V2_σCR",
+        "V2_EXP_MAG": "V2_EMAG",
         "XDAYWALLTIME": "RWTIME",
         "AVGWALLTIME": "ATIME",
         "AVGCREDITPERTASK": "ACPT",

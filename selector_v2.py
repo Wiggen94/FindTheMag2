@@ -33,7 +33,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from math import exp
+from math import exp, sqrt
 from random import Random
 from typing import Dict, Iterable, Mapping, Optional
 
@@ -161,6 +161,44 @@ class MagRatioEMA:
 # ----------------------------------------------------------------- math core
 
 
+def _posterior_params(
+    total_credit: float,
+    total_hours: float,
+    prior_mean: float,
+    prior_strength_hours: float,
+) -> tuple[float, float]:
+    """Return Gamma posterior (α, β) for credit-per-hour."""
+    alpha = prior_mean * prior_strength_hours + total_credit
+    beta = prior_strength_hours + total_hours
+    return alpha, beta
+
+
+def posterior_mean(
+    total_credit: float,
+    total_hours: float,
+    prior_mean: float = 50.0,
+    prior_strength_hours: float = 0.5,
+) -> float:
+    """Closed-form mean of the credit/hr posterior. Use for display."""
+    alpha, beta = _posterior_params(total_credit, total_hours, prior_mean, prior_strength_hours)
+    if beta <= 0:
+        return prior_mean
+    return alpha / beta
+
+
+def posterior_std(
+    total_credit: float,
+    total_hours: float,
+    prior_mean: float = 50.0,
+    prior_strength_hours: float = 0.5,
+) -> float:
+    """Closed-form stdev of the credit/hr posterior. Confidence indicator."""
+    alpha, beta = _posterior_params(total_credit, total_hours, prior_mean, prior_strength_hours)
+    if beta <= 0 or alpha <= 0:
+        return 0.0
+    return sqrt(alpha) / beta
+
+
 def posterior_sample(
     total_credit: float,
     total_hours: float,
@@ -180,8 +218,7 @@ def posterior_sample(
     rankings, giving it exploratory weight. For well-observed projects
     the posterior concentrates tightly around the empirical mean.
     """
-    alpha = prior_mean * prior_strength_hours + total_credit
-    beta = prior_strength_hours + total_hours
+    alpha, beta = _posterior_params(total_credit, total_hours, prior_mean, prior_strength_hours)
     if alpha <= 0 or beta <= 0:
         return prior_mean
     return rng.gammavariate(alpha, 1.0 / beta)
@@ -264,6 +301,23 @@ def select_and_weight(
             int(cs.get("TOTALTASKS", 0)),
             float(mag_ratios.get(url, 0.0)),
         )
+
+    # Annotate combined_stats with v2 diagnostics: posterior mean / std of
+    # credit-per-hour, and expected mag-per-hour using the smoothed ratio.
+    # Also overwrite AVGMAGPERHOUR so the table's MAG/HR column reflects v2's
+    # view (smoothed ratio × posterior mean) rather than the legacy raw point.
+    for url in eligible:
+        cs_root = combined_stats.get(url)
+        if not cs_root:
+            continue
+        cs = cs_root.setdefault("COMPILED_STATS", {})
+        tc, twh, _nt, mr = _stats(url)
+        mean_cr = posterior_mean(tc, twh, cfg.prior_mean_credit_per_hour, cfg.prior_strength_hours)
+        std_cr = posterior_std(tc, twh, cfg.prior_mean_credit_per_hour, cfg.prior_strength_hours)
+        cs["V2_POSTERIOR_MEAN_CR"] = mean_cr
+        cs["V2_POSTERIOR_STD_CR"] = std_cr
+        cs["V2_EXP_MAG"] = mean_cr * mr
+        cs["AVGMAGPERHOUR"] = mean_cr * mr
 
     # If no eligible project can earn magnitude, fall back to uniform across
     # eligible (keeps the host attached / responsive without committing) and
