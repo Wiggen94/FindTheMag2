@@ -4,6 +4,8 @@
 */debug.log
 /stats.json
 /stats.json.backup
+/selector_v2_state.json
+/selector_v2_state.json.tmp
 /global_prefs_override.xml
 /global_prefs_override_backup.xml
 /.idea/
