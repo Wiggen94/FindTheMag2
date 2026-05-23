@@ -106,6 +106,43 @@ request a new batch of work from the project to see if credit assignment, app ef
 This prevents you ending up in a situation where all project have been determined to be "unprofitable" but
 it never checks again to see if this is still true. 
 
+### Experimental: v2 selection algorithm
+
+The default project selector is a threshold-based picker: the project with
+the highest observed magnitude/hour wins, plus any others within a fixed
+percent of it (10% by default), split evenly. This is simple but flaps
+projects in and out of the winner set as ratios drift across the threshold,
+gives one fluke task the same weight as a long stable history, and ignores
+diversification.
+
+Set `SELECTOR = "v2"` in `config.py` to enable a probabilistic alternative:
+
+* **Thompson sampling** over a Gamma posterior of credit-per-hour for each
+  project — projects with thin data get wider samples and naturally
+  receive exploratory weight; well-observed projects converge on their
+  empirical mean.
+* **Softmax allocation** of mining weight across projects (with auto-
+  calibrated temperature) instead of a 10% cliff. Two projects with very
+  similar magnitude/hour get similar weight; the spread between them
+  smoothly tracks the spread in their scores.
+* **EWMA-smoothed mag/credit ratios** (default 14-day half-life). The
+  blockchain-reported ratio swings 30%+ when a big cruncher joins/leaves
+  a project; v2 dampens that into a stable signal. State persists between
+  runs in `selector_v2_state.json`.
+* **Diversification mixin** (default λ=0.05). 5% of mining weight is
+  pushed to uniform across eligible projects. Limits single-project
+  exposure if a project shuts down or pauses.
+
+All knobs live in `SELECTOR_V2_OPTIONS` in `config.py`. Defaults are
+deliberately conservative. See `selector_v2.py` for the full algorithm
+and tuning notes. Tests in `tests/test_selector_v2.py` (`python tests/
+test_selector_v2.py` to run).
+
+Currently **not** in v2 (tracked as follow-ups): per-resource CPU/GPU
+allocation, peer-hardware priors for cold-start, power/thermal-aware
+selection. Dev-crunching is also disabled under v2 — set up sidestaking
+to the developer address if you want to support upstream.
+
 ### FAQ:
 <b>I'm not getting as many coins as I expect or I haven't received my rewards?</b>
 

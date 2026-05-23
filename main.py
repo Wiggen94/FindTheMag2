@@ -2549,6 +2549,55 @@ def generate_stats(
             + str(unapproved_projects)
         )
         pprint.pprint(unapproved_projects)
+    # v2 selector opt-in: replaces both winner-picking and the weight-assignment
+    # loop below with a single Thompson-sampling / softmax pass.
+    if getattr(config, "SELECTOR", "legacy") == "v2":
+        import selector_v2
+        v2_opts = getattr(config, "SELECTOR_V2_OPTIONS", {}) or {}
+        # EWMA-smooth blockchain mag_ratios across runs before scoring
+        state_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "selector_v2_state.json"
+        )
+        ema = selector_v2.MagRatioEMA(
+            state_path,
+            half_life_days=v2_opts.get("mag_ratio_half_life_days", 14.0),
+        )
+        smoothed_ratios = ema.update_many(mag_ratios or {})
+        v2_cfg = selector_v2.V2Config(
+            temperature=v2_opts.get("temperature", "auto"),
+            diversification_lambda=v2_opts.get("diversification_lambda", 0.05),
+            n_samples=v2_opts.get("n_samples", 128),
+            min_tasks_for_local_data=v2_opts.get("min_tasks_for_local_data", 3),
+            prior_mean_credit_per_hour=v2_opts.get(
+                "prior_mean_credit_per_hour", 50.0
+            ),
+            prior_strength_hours=v2_opts.get("prior_strength_hours", 0.5),
+            mag_ratio_half_life_days=v2_opts.get("mag_ratio_half_life_days", 14.0),
+            rng_seed=v2_opts.get("rng_seed"),
+        )
+        final_project_weights = selector_v2.select_and_weight(
+            combined_stats=combined_stats,
+            mag_ratios=smoothed_ratios,
+            approved_project_urls=approved_project_urls,
+            preferred_projects=preferred_projects,
+            ignored_projects=ignored_projects,
+            total_weight=1000.0,
+            preferred_pct=PREFERRED_PROJECTS_PERCENT,
+            config=v2_cfg,
+        )
+        # dev weights: under v2 we don't allocate to a separate dev account
+        # (assumes user has sidestaking enabled; see README v2 section).
+        dev_project_weights = {u: 0.0 for u in final_project_weights}
+        total_preferred_weight = 1000.0 * (PREFERRED_PROJECTS_PERCENT / 100.0)
+        total_mining_weight = 1000.0 - total_preferred_weight
+        return (
+            combined_stats,
+            final_project_weights,
+            total_preferred_weight,
+            total_mining_weight,
+            dev_project_weights,
+        )
+
     most_efficient_projects = get_most_mag_efficient_projects(
         combined_stats, ignored_projects, quiet=quiet
     )

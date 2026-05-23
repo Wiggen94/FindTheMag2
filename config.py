@@ -121,4 +121,21 @@ BOINC_IP = "127.0.0.1"  # defaults to '127.0.0.1' with quotes
 BOINC_USERNAME = None  # defaults to None without quotes
 BOINC_PASSWORD = None  # defaults to None, password to the BOINC rpc
 BOINC_PORT = 31416
+
+# Project selection algorithm. Options:
+#   "legacy" (default): the original threshold-based picker — top mag/hr project
+#       plus any others within PROJECT_VARIANCE percent, split evenly.
+#   "v2": Thompson-sampled posterior over credit/hr per project, softmax-weighted
+#       allocation with optional diversification. Smooths weight changes, handles
+#       low-data projects via exploration, and EWMA-smooths blockchain mag ratios.
+#       See selector_v2.py for the full algorithm and tuning knobs.
+SELECTOR = "legacy"
+# v2 tuning (only used when SELECTOR == "v2"; leave at defaults unless you know
+# what you're changing). All keys are optional.
+SELECTOR_V2_OPTIONS: dict = {
+    # "temperature": "auto",            # or a float (mag/hr units)
+    # "diversification_lambda": 0.05,   # 0..1
+    # "n_samples": 128,
+    # "mag_ratio_half_life_days": 14.0,
+}
 # fmt: on
