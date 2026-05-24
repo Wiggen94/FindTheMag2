@@ -142,8 +142,24 @@ def _format_cell(value: Any, col_key: str) -> "Text":
 
 
 def _project_label(project_url: str) -> str:
-    """Shorten a project URL to a readable label, max 32 chars."""
-    label = project_url.rstrip("/").split("/")[-1].lower() or project_url
+    """Shorten a project URL to a readable label, max 32 chars.
+
+    Some BOINC project URLs put the meaningful name in the hostname and
+    leave the last path segment as just "BOINC" (e.g. Asteroids@home is
+    canonically ASTEROIDSATHOME.NET/BOINC). Picking the last segment for
+    those gives a meaningless "boinc" label; fall back to the hostname.
+    """
+    s = project_url.rstrip("/")
+    if "://" in s:
+        s = s.split("://", 1)[1]
+    parts = s.split("/")
+    host = parts[0]
+    path_parts = [p for p in parts[1:] if p]
+    last = path_parts[-1].lower() if path_parts else ""
+    if last and last not in ("boinc",):
+        label = last
+    else:
+        label = host.lower()
     if len(label) > 32:
         label = label[:30] + "…"
     return label

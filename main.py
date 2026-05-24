@@ -3831,7 +3831,7 @@ def update_table(
             table_dict[project_url][renamed] = str(round(float(stat_value), rounding))
         final_project_weights_extract = FINAL_PROJECT_WEIGHTS.get(project_url)
         if final_project_weights_extract:
-            table_dict[project_url]["WEIGHT"] = str(final_project_weights_extract)
+            table_dict[project_url]["WEIGHT"] = str(round(float(final_project_weights_extract), 1))
         else:
             table_dict[project_url]["WEIGHT"] = "0"
     # Rich TUI replacement (opt-in via USE_RICH_TUI in config.py).
