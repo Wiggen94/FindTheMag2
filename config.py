@@ -138,4 +138,18 @@ SELECTOR_V2_OPTIONS: dict = {
     # "n_samples": 128,
     # "mag_ratio_half_life_days": 14.0,
 }
+
+# How often (in minutes) to re-fetch mag/credit ratios from the wallet or
+# web. Upstream default was 1442 (~24h); 60 is plenty for most setups —
+# the fetch is cheap and a faster cadence drives the v2 EWMA smoother
+# without measurable overhead. Set higher if your wallet's RPC is slow.
+MAG_RECHECK_MINUTES = 60
+
+# Use the rich-based live TUI instead of the legacy ASCII clear-and-redraw
+# table. Requires `rich` (in requirements.txt). Falls back to legacy if
+# rich isn't installed.
+USE_RICH_TUI = False
+# Column to sort the TUI table by when USE_RICH_TUI is on. Options include
+# WEIGHT, V2_EMAG, GRC/DAY, CREDIT/HR, MAG/HR, etc.
+TUI_SORT_BY = "WEIGHT"
 # fmt: on

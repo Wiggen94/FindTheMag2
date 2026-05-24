@@ -3834,6 +3834,35 @@ def update_table(
             table_dict[project_url]["WEIGHT"] = str(final_project_weights_extract)
         else:
             table_dict[project_url]["WEIGHT"] = "0"
+    # Rich TUI replacement (opt-in via USE_RICH_TUI in config.py).
+    # Falls through to the legacy ASCII print_table if rich isn't installed
+    # or the flag is off.
+    if getattr(config, "USE_RICH_TUI", False):
+        try:
+            import tui_v2
+        except ImportError:
+            tui_v2 = None  # rich missing → legacy below
+        if tui_v2 is not None and tui_v2.is_available():
+            ranked = sorted(
+                ((u, w) for u, w in FINAL_PROJECT_WEIGHTS.items() if w > 0),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+            grc_price_val: float | None = None
+            try:
+                grc_price_val = float(DATABASE.get("GRCPRICE", 0) or 0) or None
+            except (TypeError, ValueError):
+                grc_price_val = None
+            tui_v2.render(
+                table_dict,
+                sleep_reason=sleep_reason,
+                status=status,
+                grc_price=grc_price_val,
+                v2_top3=ranked[:3],
+                sort_by=getattr(config, "TUI_SORT_BY", "WEIGHT"),
+                dev_status=dev_status,
+            )
+            return
     print_table(
         table_dict,
         sortby="GRC/DAY",
@@ -3952,7 +3981,7 @@ def boinc_loop(
         )
         if (
             (abs(mag_fetch_delta.days) * 24 * 60) + (abs(mag_fetch_delta.seconds) / 60)
-        ) > 1442:  # Only re-check mag once a day:
+        ) > getattr(config, "MAG_RECHECK_MINUTES", 1442):  # how often to re-fetch mag/credit ratios:
             if MAG_RATIO_SOURCE == "WALLET":
                 MAG_RATIOS = get_project_mag_ratios(grc_client, LOOKBACK_PERIOD)
                 log.debug(

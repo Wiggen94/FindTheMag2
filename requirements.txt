@@ -16,3 +16,4 @@ xmltodict
 zope.interface
 nest-asyncio
 beautifulsoup4
+rich
