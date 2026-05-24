@@ -132,6 +132,15 @@ Set `SELECTOR = "v2"` in `config.py` to enable a probabilistic alternative:
 * **Diversification mixin** (default λ=0.05). 5% of mining weight is
   pushed to uniform across eligible projects. Limits single-project
   exposure if a project shuts down or pauses.
+* **UCB cold-start exploration** (default c=1.0). Adds an additive
+  bonus `c × max_observed_emag × sqrt(ln(N)/n)` to each project's
+  score, where `n` is its completed-task count and `N` is the total
+  across projects. Goes to infinity as n→0 so any zero-task project
+  is virtually guaranteed weight, and decays as 1/√n once data
+  accumulates. Without this, Thompson sampling alone fails to
+  explore projects whose prior EMag is far below an established
+  leader — the random samples never bridge the gap. Set
+  `ucb_exploration_c = 0` to disable.
 
 All knobs live in `SELECTOR_V2_OPTIONS` in `config.py`. Defaults are
 deliberately conservative. See `selector_v2.py` for the full algorithm

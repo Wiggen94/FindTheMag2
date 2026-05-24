@@ -237,6 +237,86 @@ def test_diversification_lambda_one_gives_uniform():
     assert abs(out["http://hi/"] - out["http://lo/"]) < 1e-6
 
 
+# --------------------------------------------------- UCB cold-start tests
+
+
+def test_ucb_bonus_is_max_emag_for_zero_tasks():
+    bonus = sv2.ucb_exploration_bonus(n_tasks=0, total_tasks=1000, max_emag=0.78, c=1.0)
+    assert bonus == 0.78
+
+
+def test_ucb_bonus_decays_with_tasks():
+    high = sv2.ucb_exploration_bonus(n_tasks=1, total_tasks=1000, max_emag=1.0, c=1.0)
+    mid = sv2.ucb_exploration_bonus(n_tasks=100, total_tasks=1000, max_emag=1.0, c=1.0)
+    low = sv2.ucb_exploration_bonus(n_tasks=10_000, total_tasks=10_000, max_emag=1.0, c=1.0)
+    assert high > mid > low
+    assert low < 0.05
+
+
+def test_ucb_bonus_zero_when_c_is_zero():
+    assert sv2.ucb_exploration_bonus(n_tasks=0, total_tasks=1000, max_emag=10.0, c=0.0) == 0.0
+
+
+def test_ucb_cold_start_can_beat_established_leader():
+    """The original motivating case: cold-start Asteroids vs confident NumberFields."""
+    # Two projects: one has tons of data and a confident lower EMag, the other
+    # has zero local data but a higher mag/credit ratio.
+    out = sv2.select_and_weight(
+        combined_stats={
+            "http://leader/": _stats(110_000.0, 100.0, 500),  # 1100 c/hr, lots of data
+            "http://cold/": _stats(0.0, 0.0, 0),              # zero data
+        },
+        mag_ratios={
+            "http://leader/": 0.0007,   # leader EMag ≈ 0.77
+            "http://cold/": 0.003,      # cold project — best mag/cr if any data
+        },
+        approved_project_urls=["http://leader/", "http://cold/"],
+        preferred_projects={},
+        ignored_projects=[],
+        config=sv2.V2Config(
+            rng_seed=1,
+            diversification_lambda=0.0,
+            ucb_exploration_c=1.0,   # default
+            n_samples=512,
+        ),
+    )
+    # Cold project should get a meaningful share (>15%) of mining weight
+    # — without UCB it would get effectively 0 against the confident leader.
+    cold_share = out["http://cold/"] / (out["http://cold/"] + out["http://leader/"])
+    assert cold_share > 0.15, (
+        f"cold-start project should get meaningful weight via UCB; "
+        f"got cold={out['http://cold/']:.1f}, leader={out['http://leader/']:.1f}, "
+        f"share={cold_share:.3f}"
+    )
+
+
+def test_ucb_disabled_keeps_old_behavior():
+    """With c=0, the cold-start project gets minimal weight (proves UCB is what unlocks it)."""
+    out = sv2.select_and_weight(
+        combined_stats={
+            "http://leader/": _stats(110_000.0, 100.0, 500),
+            "http://cold/": _stats(0.0, 0.0, 0),
+        },
+        mag_ratios={
+            "http://leader/": 0.0007,
+            "http://cold/": 0.003,
+        },
+        approved_project_urls=["http://leader/", "http://cold/"],
+        preferred_projects={},
+        ignored_projects=[],
+        config=sv2.V2Config(
+            rng_seed=1,
+            diversification_lambda=0.0,
+            ucb_exploration_c=0.0,   # disabled
+            n_samples=512,
+        ),
+    )
+    cold_share = out["http://cold/"] / (out["http://cold/"] + out["http://leader/"])
+    assert cold_share < 0.05, (
+        f"without UCB, cold-start project should be starved; got share={cold_share:.3f}"
+    )
+
+
 def test_low_data_projects_get_exploration_weight():
     # New project with zero history should get *some* weight via prior sampling.
     out = sv2.select_and_weight(

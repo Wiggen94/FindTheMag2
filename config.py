@@ -134,9 +134,10 @@ SELECTOR = "legacy"
 # what you're changing). All keys are optional.
 SELECTOR_V2_OPTIONS: dict = {
     # "temperature": "auto",            # or a float (mag/hr units)
-    # "diversification_lambda": 0.05,   # 0..1
+    # "diversification_lambda": 0.05,   # 0..1 (uniform-mixin for diversification)
     # "n_samples": 128,
     # "mag_ratio_half_life_days": 14.0,
+    # "ucb_exploration_c": 1.0,         # cold-start bonus; 0 disables, 2.0 is aggressive
 }
 
 # How often (in minutes) to re-fetch mag/credit ratios from the wallet or

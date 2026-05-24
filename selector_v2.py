@@ -33,7 +33,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from math import exp, sqrt
+from math import exp, log, sqrt
 from random import Random
 from typing import Dict, Iterable, Mapping, Optional
 
@@ -70,6 +70,16 @@ class V2Config:
             ratios reported by the blockchain. 14 days means a spike from
             today contributes ~50% weight after two weeks. Set to 0 to
             disable smoothing (use raw current ratios).
+        ucb_exploration_c: UCB1-style cold-start bonus coefficient. A
+            per-project additive boost ``c * max_emag * sqrt(ln(N) / n)``
+            is added to each project's score, where ``n`` is its
+            completed-task count and ``N`` is the total across all
+            projects. Goes to infinity as ``n → 0`` (guaranteeing
+            exploration of brand-new projects), decays as ``1/sqrt(n)``
+            once data accumulates. Without this, Thompson sampling
+            alone fails to explore projects whose prior EMag is much
+            lower than an established leader (large unbridgeable gap).
+            Set to 0 to disable. Default 1.0 matches theoretical UCB1.
         rng_seed: Optional integer for deterministic runs. ``None`` for
             nondeterministic. Set this in tests, leave it unset in prod.
     """
@@ -81,6 +91,7 @@ class V2Config:
     prior_mean_credit_per_hour: float = 50.0
     prior_strength_hours: float = 0.5
     mag_ratio_half_life_days: float = 14.0
+    ucb_exploration_c: float = 1.0
     rng_seed: Optional[int] = None
 
 
@@ -224,6 +235,33 @@ def posterior_sample(
     return rng.gammavariate(alpha, 1.0 / beta)
 
 
+def ucb_exploration_bonus(
+    n_tasks: int,
+    total_tasks: int,
+    max_emag: float,
+    c: float,
+) -> float:
+    """UCB1-style exploration bonus added to a project's score.
+
+    Returns ``c * max_emag * sqrt(ln(total_tasks) / n_tasks)`` for projects
+    with prior data, and ``c * max_emag`` (the cold-start cap) when
+    ``n_tasks == 0``. The bonus is scaled by the best-observed EMag so it
+    can outcompete an established leader for cold-start projects but
+    decays toward zero as ``n_tasks`` grows.
+
+    This is the standard UCB1 form (Auer, Cesa-Bianchi, Fischer 2002)
+    adapted for additive integration with Thompson sampling: Thompson
+    handles the smooth, uncertainty-aware allocation, and this term
+    guarantees that any project with zero or very few tasks gets enough
+    weight to accumulate observations and break out of its prior.
+    """
+    if c <= 0 or max_emag <= 0:
+        return 0.0
+    if n_tasks <= 0:
+        return c * max_emag
+    return c * max_emag * sqrt(log(max(total_tasks, 2)) / n_tasks)
+
+
 def softmax(scores: Mapping[str, float], temperature: float) -> Dict[str, float]:
     """Numerically stable softmax with explicit temperature.
 
@@ -327,7 +365,27 @@ def select_and_weight(
         per = mining_slice / max(len(eligible), 1) if eligible else 0.0
         weights: Dict[str, float] = {u: per for u in eligible}
     else:
+        # Pre-compute the cold-start bonus inputs: total observed tasks across
+        # eligible-and-earning projects, and the best posterior-mean EMag
+        # (used as the scale for the UCB bonus so it can outcompete leaders).
+        total_observed_tasks = sum(_stats(u)[2] for u in earning)
+        max_observed_emag = 0.0
+        for u in earning:
+            tc, twh, nt, mr = _stats(u)
+            if nt >= cfg.min_tasks_for_local_data:
+                mean_em = posterior_mean(
+                    tc, twh,
+                    cfg.prior_mean_credit_per_hour,
+                    cfg.prior_strength_hours,
+                ) * mr
+                if mean_em > max_observed_emag:
+                    max_observed_emag = mean_em
+
         # Thompson sampling: average softmax allocations across n_samples draws.
+        # Each per-project score = (sampled credit/hr × smoothed mag/cr) +
+        # UCB cold-start bonus. The bonus is the same on every draw (it's a
+        # function of n_tasks, not the sample), so it acts as a deterministic
+        # additive lift that's largest for projects with no local data.
         allocations: Dict[str, float] = {u: 0.0 for u in eligible}
         for _ in range(cfg.n_samples):
             sample_scores: Dict[str, float] = {}
@@ -345,7 +403,10 @@ def select_and_weight(
                         cfg.prior_mean_credit_per_hour,
                         cfg.prior_strength_hours,
                     )
-                sample_scores[url] = rate * mr
+                bonus = ucb_exploration_bonus(
+                    nt, total_observed_tasks, max_observed_emag, cfg.ucb_exploration_c,
+                )
+                sample_scores[url] = rate * mr + bonus
 
             if cfg.temperature == "auto":
                 spread = max(sample_scores.values()) - min(sample_scores.values())

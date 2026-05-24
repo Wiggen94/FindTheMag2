@@ -2573,6 +2573,7 @@ def generate_stats(
             ),
             prior_strength_hours=v2_opts.get("prior_strength_hours", 0.5),
             mag_ratio_half_life_days=v2_opts.get("mag_ratio_half_life_days", 14.0),
+            ucb_exploration_c=v2_opts.get("ucb_exploration_c", 1.0),
             rng_seed=v2_opts.get("rng_seed"),
         )
         final_project_weights = selector_v2.select_and_weight(
